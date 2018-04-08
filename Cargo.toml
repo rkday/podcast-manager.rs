@@ -5,7 +5,7 @@ authors = ["Rob Day <rkd@rkd.me.uk>"]
 
 [dependencies]
 htmlescape = "0.3.1"
-textwrap = "0.9"
+textwrap =  { git = "https://github.com/mgeisler/textwrap", rev = "80da77456c23b9f587c09d3657c932b3dbd51e95" }
 tui = "0.2.1"
 termion = "1.5.1"
 
