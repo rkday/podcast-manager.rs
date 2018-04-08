@@ -559,6 +559,7 @@ version = "0.1.0"
 dependencies = [
  "htmlescape 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rss 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "termion 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "textwrap 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tui 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

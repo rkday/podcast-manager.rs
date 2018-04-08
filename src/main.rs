@@ -1,10 +1,18 @@
 extern crate rss;
 extern crate htmlescape;
 extern crate textwrap;
+extern crate termion;
 use rss::Channel;
 extern crate tui;
 
 use std::io;
+
+use std::thread;
+use std::time;
+use std::sync::mpsc;
+
+use termion::event;
+use termion::input::TermRead;
 
 use tui::Terminal;
 use tui::backend::RawBackend;
@@ -12,10 +20,15 @@ use tui::widgets::{Block, Borders, SelectableList, Widget, Paragraph};
 use tui::layout::{Direction, Group, Rect, Size};
 use tui::style::{Color, Modifier, Style};
 
+enum Event {
+    Input(event::Key),
+    Tick,
+}
 
 struct PodcastData {
     items: Vec<rss::Item>,
     selected: usize,
+    size: tui::layout::Rect,
 }
 
 fn main() {
@@ -23,13 +36,68 @@ fn main() {
     let episodes = channel.items().to_vec();
     let episodes_iter = episodes.into_iter();
     let audio_episodes: Vec<rss::Item> = episodes_iter.filter(|i| item_is_audio(i)).collect();
-    let pd = PodcastData{items: audio_episodes, selected: 4};
 
     let mut terminal = init().expect("Failed initialization");
     let size = terminal.size().unwrap();
-    draw(&mut terminal, size, &pd);
-    let ten_secs = std::time::Duration::from_millis(10000);
-    std::thread::sleep(ten_secs);
+    let mut pd = PodcastData{items: audio_episodes, selected: 4, size: size};
+
+    // Channels
+    let (tx, rx) = mpsc::channel();
+    let input_tx = tx.clone();
+    let clock_tx = tx.clone();
+
+    // Input
+    thread::spawn(move || {
+        let stdin = io::stdin();
+        for c in stdin.keys() {
+            let evt = c.unwrap();
+            input_tx.send(Event::Input(evt)).unwrap();
+            if evt == event::Key::Char('q') {
+                break;
+            }
+        }
+    });
+
+    // Tick
+    thread::spawn(move || loop {
+        clock_tx.send(Event::Tick).unwrap();
+        thread::sleep(time::Duration::from_millis(500));
+    });
+
+    draw(&mut terminal, &pd);
+
+    loop {
+        let size = terminal.size().unwrap();
+        if size != pd.size {
+            terminal.resize(size).unwrap();
+            pd.size = size;
+        }
+
+        let evt = rx.recv().unwrap();
+        match evt {
+            Event::Input(input) => match input {
+                event::Key::Char('q') => {
+                    break;
+                }
+                event::Key::Down => {
+                    pd.selected += 1;
+                    if pd.selected > pd.items.len() - 1 {
+                        pd.selected = 0;
+                    }
+                }
+                event::Key::Up => if pd.selected > 0 {
+                    pd.selected -= 1;
+                } else {
+                    pd.selected = pd.items.len() - 1;
+                },
+                _ => {}
+            },
+            Event::Tick => {
+                //app.advance();
+            }
+        }
+        draw(&mut terminal, &pd);
+    }
     terminal.clear().unwrap();
 }
 
@@ -39,7 +107,7 @@ fn init() -> Result<Terminal<RawBackend>, io::Error> {
 }
 
 
-fn draw(t: &mut Terminal<RawBackend>, size: Rect, podcasts: &PodcastData) {
+fn draw(t: &mut Terminal<RawBackend>, podcasts: &PodcastData) {
     let ep = &podcasts.items[podcasts.selected];
     let desc = ep.description().unwrap_or("(no description)");
     let desc_decoded = htmlescape::decode_html(desc).unwrap();
@@ -48,7 +116,7 @@ fn draw(t: &mut Terminal<RawBackend>, size: Rect, podcasts: &PodcastData) {
     Group::default()
         .direction(Direction::Horizontal)
         .sizes(&[Size::Percent(50), Size::Percent(50)])
-        .render(t, &size, |t, chunks| {
+        .render(t, &podcasts.size, |t, chunks| {
             let style = Style::default().fg(Color::Black).bg(Color::White);
             SelectableList::default()
                 .block(Block::default().borders(Borders::ALL).title("List"))
@@ -62,7 +130,7 @@ fn draw(t: &mut Terminal<RawBackend>, size: Rect, podcasts: &PodcastData) {
                 .direction(Direction::Vertical)
                 .sizes(&[Size::Percent(50), Size::Percent(50)])
                 .render(t, &chunks[1], |t, chunks| {
-                    let text2 = format!("{}", textwrap::fill(&text, chunks[0].width as usize));
+                    let text2 = format!("{}", textwrap::fill(&text, (chunks[0].width - 3) as usize));
                     Paragraph::default()
                         .block(Block::default().title("Paragraph").borders(Borders::ALL))
                         .style(Style::default().fg(Color::White).bg(Color::Black))
