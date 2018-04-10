@@ -8,6 +8,8 @@ htmlescape = "0.3.1"
 textwrap =  { git = "https://github.com/mgeisler/textwrap", rev = "80da77456c23b9f587c09d3657c932b3dbd51e95" }
 tui = "0.2.1"
 termion = "1.5.1"
+reqwest = "0.8.5"
+url = "1.7.0"
 
 [dependencies.rss]
 version = "1.4.0"

@@ -2,14 +2,21 @@ extern crate rss;
 extern crate htmlescape;
 extern crate textwrap;
 extern crate termion;
+extern crate reqwest;
+extern crate url;
 use rss::Channel;
 extern crate tui;
 
 use std::io;
+use std::fs::File;
+use std::io::prelude::*;
 
+use std::path::PathBuf;
 use std::thread;
 use std::time;
 use std::sync::mpsc;
+
+use url::{Url, ParseError};
 
 use termion::event;
 use termion::input::TermRead;
@@ -78,6 +85,18 @@ fn main() {
             Event::Input(input) => match input {
                 event::Key::Char('q') => {
                     break;
+                }
+                event::Key::Char('y') => {
+                    let url = pd.items[pd.selected].enclosure().unwrap().url();
+                    let parsed_url = Url::parse(url).unwrap();
+                    let url_path = parsed_url.path();
+                    let filename = std::path::Path::new(url_path).file_name().unwrap();
+                    let mut dl_path = PathBuf::new();
+                    dl_path.push("/tmp");
+                    dl_path.push(filename);
+                    let mut resp = reqwest::get(url).expect("Failed to send request");
+                    let mut f = File::create(dl_path).expect("Failed to create file");
+                    std::io::copy(&mut resp, &mut f);
                 }
                 event::Key::Down => {
                     pd.selected += 1;
