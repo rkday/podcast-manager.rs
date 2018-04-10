@@ -1,24 +1,18 @@
 extern crate rss;
-extern crate htmlescape;
 extern crate textwrap;
 extern crate termion;
+extern crate tui;
+extern crate htmlescape;
 extern crate reqwest;
 extern crate url;
-use rss::Channel;
-extern crate tui;
 
 mod podcast_data;
 
 use std::io;
-use std::fs::File;
-use std::io::prelude::*;
 
-use std::path::PathBuf;
 use std::thread;
 use std::time;
 use std::sync::mpsc;
-
-use url::{Url, ParseError};
 
 use termion::event;
 use termion::input::TermRead;
@@ -26,7 +20,7 @@ use termion::input::TermRead;
 use tui::Terminal;
 use tui::backend::RawBackend;
 use tui::widgets::{Block, Borders, SelectableList, Widget, Paragraph};
-use tui::layout::{Direction, Group, Rect, Size};
+use tui::layout::{Direction, Group, Size};
 use tui::style::{Color, Modifier, Style};
 
 enum Event {
@@ -34,21 +28,26 @@ enum Event {
     Tick,
 }
 
-struct PodcastData {
-    items: Vec<rss::Item>,
+struct Application {
+    podcasts: Vec<podcast_data::PodcastData>,
     selected: usize,
     size: tui::layout::Rect,
 }
 
+impl Application {
+    fn selected_podcast(&self) -> &podcast_data::PodcastData { &self.podcasts[self.selected] }
+    fn selected_podcast_mut(&mut self) -> &mut podcast_data::PodcastData { &mut self.podcasts[self.selected] }
+    fn selected_episode(&self) -> &podcast_data::PodcastEpisode { self.selected_podcast().selected_episode() }
+    fn next_episode(&mut self) -> () { self.selected_podcast_mut().next_episode() }
+    fn prev_episode(&mut self) -> () { self.selected_podcast_mut().prev_episode() }
+}
+
 fn main() {
-    let channel = Channel::from_url("http://www.angryweasel.com/ABTesting/feed/").unwrap();
-    let episodes = channel.items().to_vec();
-    let episodes_iter = episodes.into_iter();
-    let audio_episodes: Vec<rss::Item> = episodes_iter.filter(|i| podcast_data::item_is_audio(i)).collect();
+    let channel = rss::Channel::from_url("http://www.angryweasel.com/ABTesting/feed/").unwrap();
 
     let mut terminal = init().expect("Failed initialization");
     let size = terminal.size().unwrap();
-    let mut pd = PodcastData{items: audio_episodes, selected: 4, size: size};
+    let mut app = Application{podcasts: vec![podcast_data::PodcastData::new(&channel)], selected: 0, size: size};
 
     // Channels
     let (tx, rx) = mpsc::channel();
@@ -73,13 +72,13 @@ fn main() {
         thread::sleep(time::Duration::from_millis(500));
     });
 
-    draw(&mut terminal, &pd);
+    draw(&mut terminal, &app);
 
     loop {
         let size = terminal.size().unwrap();
-        if size != pd.size {
+        if size != app.size {
             terminal.resize(size).unwrap();
-            pd.size = size;
+            app.size = size;
         }
 
         let evt = rx.recv().unwrap();
@@ -89,35 +88,17 @@ fn main() {
                     break;
                 }
                 event::Key::Char('y') => {
-                    let url = pd.items[pd.selected].enclosure().unwrap().url();
-                    let parsed_url = Url::parse(url).unwrap();
-                    let url_path = parsed_url.path();
-                    let filename = std::path::Path::new(url_path).file_name().unwrap();
-                    let mut dl_path = PathBuf::new();
-                    dl_path.push("/tmp");
-                    dl_path.push(filename);
-                    let mut resp = reqwest::get(url).expect("Failed to send request");
-                    let mut f = File::create(dl_path).expect("Failed to create file");
-                    std::io::copy(&mut resp, &mut f);
+                    app.selected_episode().download();
                 }
-                event::Key::Down => {
-                    pd.selected += 1;
-                    if pd.selected > pd.items.len() - 1 {
-                        pd.selected = 0;
-                    }
-                }
-                event::Key::Up => if pd.selected > 0 {
-                    pd.selected -= 1;
-                } else {
-                    pd.selected = pd.items.len() - 1;
-                },
+                event::Key::Down => app.next_episode(),
+                event::Key::Up => app.prev_episode(),
                 _ => {}
             },
             Event::Tick => {
                 //app.advance();
             }
         }
-        draw(&mut terminal, &pd);
+        draw(&mut terminal, &app);
     }
     terminal.clear().unwrap();
 }
@@ -127,21 +108,19 @@ fn init() -> Result<Terminal<RawBackend>, io::Error> {
     Terminal::new(backend)
 }
 
-
-fn draw(t: &mut Terminal<RawBackend>, podcasts: &PodcastData) {
-    let ep = &podcasts.items[podcasts.selected];
-    let desc = ep.description().unwrap_or("(no description)");
-    let desc_decoded = htmlescape::decode_html(desc).unwrap();
-    let text = format!("Description:\n{}\n\nURL: {}\n\n", desc_decoded, ep.enclosure().unwrap().url());
+fn draw(t: &mut Terminal<RawBackend>, app: &Application) {
+    let podcasts = app.selected_podcast();
+    let ep = podcasts.selected_episode();
+    let text = format!("Description:\n{}\n\nURL: {}\n\n", ep.description, ep.url);
 
     Group::default()
         .direction(Direction::Horizontal)
         .sizes(&[Size::Percent(50), Size::Percent(50)])
-        .render(t, &podcasts.size, |t, chunks| {
+        .render(t, &app.size, |t, chunks| {
             let style = Style::default().fg(Color::Black).bg(Color::White);
             SelectableList::default()
                 .block(Block::default().borders(Borders::ALL).title("List"))
-                .items(&podcasts.items.iter().map(|ep| ep.title().unwrap_or("no title")).collect::<Vec<_>>())
+                .items(&podcasts.items.iter().map(|ep| ep.title.clone()).collect::<Vec<_>>())
                 .select(podcasts.selected)
                 .style(style)
                 .highlight_style(style.clone().fg(Color::LightGreen).modifier(Modifier::Bold))
