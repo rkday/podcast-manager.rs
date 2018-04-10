@@ -7,6 +7,8 @@ extern crate url;
 use rss::Channel;
 extern crate tui;
 
+mod podcast_data;
+
 use std::io;
 use std::fs::File;
 use std::io::prelude::*;
@@ -42,7 +44,7 @@ fn main() {
     let channel = Channel::from_url("http://www.angryweasel.com/ABTesting/feed/").unwrap();
     let episodes = channel.items().to_vec();
     let episodes_iter = episodes.into_iter();
-    let audio_episodes: Vec<rss::Item> = episodes_iter.filter(|i| item_is_audio(i)).collect();
+    let audio_episodes: Vec<rss::Item> = episodes_iter.filter(|i| podcast_data::item_is_audio(i)).collect();
 
     let mut terminal = init().expect("Failed initialization");
     let size = terminal.size().unwrap();
@@ -161,11 +163,4 @@ fn draw(t: &mut Terminal<RawBackend>, podcasts: &PodcastData) {
         });
 
     t.draw().unwrap();
-}
-
-fn item_is_audio(item: &rss::Item) -> bool {
-    match item.enclosure() {
-        None => false,
-        Some(file) => file.mime_type() == "audio/mpeg"
-    }
 }
